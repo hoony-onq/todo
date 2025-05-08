@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>뷰 할일 프로젝트</title>
+    
+    <link rel="shortcut icon" href="#" type="image/x-icon">
+    <link rel="apple-touch-icon" href="#">
+    <!-- 부트스트랩 폰트아이콘 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">   
+    <script src="./script/lib/vue.global.js"></script>
+
+</head>
+<body>
+
+    <!-- 1. 탬플릿트 -->
+    <div id="root">
+        
+        <div class="title-box">
+            <h1>TODO LIST</h1>
+        </div>
+
+        <div class="input-box">
+            <div class="container">
+                <input 
+                    type="text" 
+                    name="todo" 
+                    id="todo"
+                    placeholder="할일을 입력하세요."                    
+                    v-model="state.할일"
+                    @keyup.enter="keyupEnterEvent"
+                    ref="todoInputBox"
+                >
+                <input 
+                    type="datetime-local" 
+                    name="expires" 
+                    id="expires"
+                    v-model="state.기한"
+                    @change="keyupEnterEvent"
+                >
+            </div>
+        </div>
+
+        <div class="list-box">
+            <div class="container">
+                <!-- 할일 시작 출력 리스트 -->
+                <ul>                
+                    <template  v-for="item, index in state.할일리스트">
+                        <li  v-if="(item.완료===false) && (index >= state.listStart && index < state.listEnd)">
+                            <input 
+                                type="checkbox" 
+                                name="complete" 
+                                :id="`uncomplete${item.idx}`"
+                                :checked="item.완료"
+                                @change="onChangeComplete($event, item.idx)"
+                            >
+                            <a href="#" @click.prevent="onClickUpdate( item )"><span>{{ item.할일 }}</span></a>
+                            <button 
+                                :class="['update-cancle-btn', {'on': item.idx===state.idx ? state.수정 : false }]" 
+                                @click.prevent="onClickUpdateCancle"
+                            ><i class="bi bi-arrow-counterclockwise"></i></button>
+                            <button 
+                                class="delete-btn"
+                                @click.prevent="onClickDelete(item.idx)"
+                        ><i class="bi bi-trash3"></i></button>
+                        </li>   
+                    </template>
+                </ul>
+
+                <br>
+                <br>
+                <br>
+
+                <div  
+                    class="completed-text" 
+                    v-show="state.할일리스트.filter((item)=>item.완료===true).length > 0"
+                >완료됨</div>
+
+                <!-- 할일 완료 출력 리스트 -->
+                <ul class="completed">                
+                    <template  v-for="item in state.할일리스트">
+                        <li  v-if="item.완료===true">
+                            <input 
+                                type="checkbox" 
+                                name="complete" 
+                                :id="`complete${item.idx}`"
+                                :checked="item.완료"
+                                @change="onChangeComplete($event, item.idx)"
+                            >
+                            <a href="#"><span>{{ item.할일 }}</span></a>
+                            <button 
+                                :class="['update-cancle-btn',  {'on': false}]"                                 
+                            ><i class="bi bi-arrow-counterclockwise"></i></button>
+                            <button 
+                                class="delete-btn"
+                                @click.prevent="onClickDelete(item.idx)"
+                            ><i class="bi bi-trash3"></i></button>
+                        </li>   
+                    </template>
+                </ul>
+
+
+                <!-- 페이지버튼박스 -->
+                 <div class="pagebtn-box">
+                    <button @click.prevent="onClickStartPageBtn"><i class="bi bi-chevron-double-left"></i></button>
+                    <button @click.prevent="onClickPrevPageBtn"><i class="bi bi-chevron-left"></i></button>
+                    <template v-for="i, idx in state.pages">
+                        <button 
+                            @click.prevent="onClickPageBtn(i)" 
+                            :class="{'on': i===page }"  
+                            v-if="idx >= state.btnStart && idx < state.btnEnd"
+                        >
+                            {{i}}
+                        </button>
+                    </template>
+                    <button @click.prevent="onClickNextPageBtn"><i class="bi bi-chevron-right"></i></button>
+                    <button @click.prevent="onClickEndPageBtn"><i class="bi bi-chevron-double-right"></i></button>
+                 </div>
+
+
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>ⓒ 2025 MOONSEONJONG Company. All Rights Reserved.</p>
+        </div>
+
+
+        <div :class="['confirm-modal', {'on' : state.isOn}]">
+            <div class="container">
+                <div class="content">
+                    <h2>삭제할까요<i class="bi bi-emoji-expressionless"></i></h2>
+                </div>
+                <div class="button-box">
+                    <button @click="onClickYes">예 <i class="bi bi-emoji-tear"></i></button>
+                    <button @click="onClickNo">아니오 <i class="bi bi-emoji-kiss-fill"></i></button>
+                </div>                
+            </div>
+        </div>
+
+    </div>
+    
+
+    <!-- 2. 스크립트 -->
+     <script>
+        // 뷰(Vue.js) 선언 => 뷰 인스턴스 생성
+        Vue.createApp({
+            data(){
+                return {
+                              // watch 가 페이지를 감시하도록 page 변수를 리턴문에 바로 설정한다.
+                    page: 1,  // 현재페이지 번호 => 로딩시  또는 페이지 이동시 현재페이지 번호 
+                    state: {
+                        // 입력 & 수정데이터 상태변수
+                        할일: '',      // 새로운 입력 데이터
+                        기한: '',      // 오늘 날짜 시간 초기값 설정
+                        수정: false,    // 수정함 true, 수정안함 fasle
+                        idx: '',         // 수정할 아이디가 저장되어있다. 
+                        
+                        할일리스트: [], // 누적 저장되는 데이터 배열  IDX 중복불허                                         
+                                        //  할일 항목 추가할 때 IDX 번호 최대값(Math.max()) + 1
+
+                    
+                        // 페이지네이션 전체 상태변수
+                        total: 0,     // 전체 리스트 갯수
+                        pages: 0,     // 페이지수 16 => 페이지 버튼 16 수 를 결정한다.                   
+
+                        // 리스트 페이지네이션 상태변수
+                        listShow: 4,  // 한화면의 보여줄 리스트 갯수
+                        listStart: 0,
+                        listEnd: 0,
+
+                        // 버튼 페이지네이션 상태변수
+                        btnShow: 5,  // 한화면의 보여줄 버튼 갯수
+                        btnStart: 0,
+                        btnEnd: 0,
+
+                        isOn:false
+
+                    }
+                }
+            },
+            created(){ // 로딩시 실행 끝 또는 새로고침시 실행
+
+                // 예외처리
+                // 로컬스토레이지 가져오기 알수없는 오류 발생할 때 예외처리
+                try{  //  오류가 없으면 트라이 실행된다.
+                    // 새로고침시 할일리스트 목록 유지한다.
+                    if(localStorage.getItem('할일리스트') !== null) {
+                        this.state.할일리스트 = JSON.parse(localStorage.getItem('할일리스트'));
+                    } 
+                    // 새로고침시 현재페이지를 유지한다.
+                    if(localStorage.getItem('page')!==null){
+                        this.page = Number(localStorage.getItem('page'));  // 문자열 => 숫자
+                    }
+                }
+                catch(err){  // 오류가 발생하면 캣치가 실행된다.
+                    console.log(err)
+                    return;
+                }
+
+                // try{
+                //     // 실행문
+                // }
+                // catch{
+                //     return;
+                // }                
+                              
+                // 2. 오늘 날짜               
+                let toDay = new Date();
+                toDay.setHours( toDay.getHours() + 9)
+                this.state.기한 = toDay.toISOString().slice(0, -8); // :30.315Z 제외  => 날짜 시:분
+            
+                // 3. 페이지네이션
+                // 1 전체리스트 갯수 할일리스트.길이  27개    total
+                this.state.total = this.state.할일리스트.length;
+                console.log( this.state.total )
+
+                // 2 한화면에 보여줄 리스트 갯수 5개     listShow                
+                console.log( this.state.listShow )
+
+                // 3 전체 페이지 갯수 = 자리올림(total 27개 / listShow 5개) pages
+                //   페이지 갯수는 페이지 버튼 갯수를 결정한다.
+                this.state.pages = Math.ceil(this.state.total / this.state.listShow)
+                console.log( this.state.pages )
+
+                // 4. 페이지버튼 탬플릿트에 만들기 올라 가자 완성
+                // 테스트 => 할일을 여러개 등록하고 하단에 페이지버튼이
+                //            자동 증가되는지 확인하기
+
+                // 5. 리스트 목록 페이지네이션 시작번호 listStart, 끝번호 listEnd 를 설정하고 
+                //    한화면에 보여줄 갯수 5개만 보이게 설정한다.
+                this.state.listStart = this.state.listStart * this.state.listShow
+                this.state.listEnd   = this.state.listStart + this.state.listShow
+
+                // 6. 탬플릿트 할일리스트 반복문 안에 v-if 조건문안에
+                //   시작번호, 끝번호를 지정한다. 그러면 한화면 출력 목록만 보인다.
+                //   this.state.listShow  갯수를 바꾸어서 목록확인하고 버튼갯수 확인다.
+
+                // 7. 탬플릿트 페이지버튼 클릭하여 페이지 이동을 해본다
+                //    created() 훅에 있는 시작번호, 끝번호 연산식을 
+                //    클릭이벤트 함수안에 복사 붙이기 한다.
+                
+                // 8. 버튼 페이지네이션 시작번호 0, 끝번호 4  0~4 <5,   5~9 <10 ...
+                // 1 2 3 4  5    => 0 ~ 5미만              
+                // this.state.btnStart = (Math.ceil(1/5)-1) * 5 => 0 ~ 미만5
+                // this.state.btnStart = (Math.ceil(2/5)-1) * 5 => 0 ~ 미만5
+                // this.state.btnStart = (Math.ceil(3/5)-1) * 5 => 0 ~ 미만5
+                // this.state.btnStart = (Math.ceil(4/5)-1) * 5 => 0 ~ 미만5
+                // this.state.btnStart = (Math.ceil(5/5)-1) * 5 => 0 ~ 미만5
+
+                // 6 7 8 9 10    => 5 ~ 10미만  
+                // this.state.btnStart = (Math.ceil(6/5)-1) * 5 => 5 ~ 미만10
+                // this.state.btnStart = (Math.ceil(7/5)-1) * 5 => 5 ~ 미만10
+                // this.state.btnStart = (Math.ceil(8/5)-1) * 5 => 5 ~ 미만10
+                // this.state.btnStart = (Math.ceil(9/5)-1) * 5 => 5 ~ 미만10
+                // this.state.btnStart = (Math.ceil(10/5)-1) * 5 => 5 ~ 미만10
+
+                // 11 12 13 14 15  => 10 ~ 15미만
+                // this.state.btnStart = (Math.ceil(11/5)-1) * 5 => 10 ~ 미만15
+                // this.state.btnStart = (Math.ceil(12/5)-1) * 5 => 10 ~ 미만15
+                // this.state.btnStart = (Math.ceil(13/5)-1) * 5 => 10 ~ 미만15
+                // this.state.btnStart = (Math.ceil(14/5)-1) * 5 => 10 ~ 미만15
+                // this.state.btnStart = (Math.ceil(15/5)-1) * 5 => 10 ~ 미만15
+
+                // 16               => 15 ~ 20미만 
+                // this.state.btnStart = (Math.ceil(16/5)-1) * 5 => 15 ~ 미만20
+
+                // 0 ~ 5미만
+                this.state.btnStart = (Math.ceil(this.page/this.state.btnShow)-1) * this.state.btnShow
+                this.state.btnEnd   = this.state.btnStart + this.state.btnShow
+
+
+            },
+            // 탬플릿트(HTML 코딩)에서 이벤트를 함수(메서드()) 로 구현하여 사용한다.
+            methods: {
+                // 수정 함수
+                updateFn(){
+                    // 할일 데이터 수정은 map() 함수
+                    // 많은 할일 목록 중에 해당하는 idx 가 일치하는 데이터를 수정
+                    // console.log( this.state.할일리스트 )
+                    this.state.할일리스트.map((item)=>item.idx===this.state.idx ? (item.할일=this.state.할일, item.기한=this.state.기한) : (item)  )
+                    // console.log( this.state.할일리스트 )
+                    localStorage.setItem('할일리스트', JSON.stringify(this.state.할일리스트))                 
+
+
+                    this.state.수정 = false;
+                    this.state.idx = '';
+                    this.state.할일 = '';
+
+                    let toDay = new Date();
+                    toDay.setHours( toDay.getHours() + 9)
+                    this.state.기한 = toDay.toISOString().slice(0, -8); // :30.315Z 제외  => 날짜 시:분
+
+                    this.$refs.todoInputBox.focus();
+
+                },
+
+                // 할일 입력 또는 날짜 입력 함수(메서드)
+                keyupEnterEvent(){      
+                    
+                    // 수정상태 파악
+                    if(this.state.수정===true){
+                        // 수정하러 가야지 수정함수로()
+                        this.updateFn()
+                        return;
+                    }
+                    
+
+                    if(this.state.할일==='' || this.state.기한==='' ){
+                        alert('할일 또는 기한을 입력 하세요.')
+                        return;                     
+                    }          
+                    else if( new Date(this.state.기한) < new Date() ){  // 과거는 입력 불가
+                        alert('기한은 현재 이후를 선택 입력 하세요.')
+                        return;
+                    }
+
+                    // 키보드로 새로운 데이터 추가 하면 실행한다.
+                    // 중복불가 아이디 자동 증가 번호 구현 알고리즘
+                    // 저장된 모든 idx 를 뽑아낸다. 그리고 최대값을 구한다. + 1 연산
+                    let idx = 0;
+                    if(this.state.할일리스트.length===0){
+                        idx = 1;
+                    }
+                    else{
+                        idx = Math.max(...this.state.할일리스트.map((item)=>item.idx)) + 1
+                    }
+                    this.state.할일리스트 = [
+                        {
+                            idx: idx,
+                            할일: this.state.할일,
+                            완료: false,
+                            기한: this.state.기한,
+                            등록일: `${new Date().getFullYear()}-${new Date().getMonth()+1}-${new Date().getDate()} ${new Date().getHours()}:${new Date().getMinutes()}:${new Date().getSeconds()}`
+                        },
+                        ...this.state.할일리스트
+                    ]
+                    localStorage.setItem('할일리스트', JSON.stringify(this.state.할일리스트))                    
+                    this.state.할일 = '';
+                    // 할일 입력상자 선택자 . 커서를 위치하라 
+                    // 커서가 빤짝빤짝 거린다.
+                    // 입력대기상태 
+                    this.$refs.todoInputBox.focus();
+                },  // 입력 엔터 이벤트 끝
+
+                // 완료 체크박스 이벤트
+                onChangeComplete(e, idx){
+                    if(e.target.checked===true){
+                        // 체크 되면 할일리스트 중에 완료를 true로 변경
+                        // 맵함수 if문 리턴문
+                        this.state.할일리스트.map((item)=>{
+                            if(item.idx===idx){
+                                return item.완료=true
+                            }
+                            else{
+                                return item       // 바꾸지 않는다
+                            }                            
+                        });                       
+                    }
+                    else{
+                        // 체크 해제되면 완료를 false로 변경
+                        // 맵 함수 3항연산자 즉시리턴
+                        this.state.할일리스트.map((item)=>item.idx===idx ? item.완료=false : item );                       
+                    }
+
+                    // 수정된 내용 로컬 저장소 저장하기
+                    localStorage.setItem('할일리스트', JSON.stringify(this.state.할일리스트))
+                },
+                
+                // 삭제 버튼 클릭 이벤트
+                onClickDelete(idx){
+                    this.state.isOn=true;
+                    this.state.idx = idx
+
+                    // const res = confirm('삭제할까요?')
+                    // if(res===true){ // 예 => 삭제
+                    //     this.state.할일리스트 = this.state.할일리스트.filter((item)=>item.idx!==idx)
+                    //     localStorage.setItem('할일리스트', JSON.stringify(this.state.할일리스트))
+                    // }
+                    // else{  // 아니오 => 취소
+                    //     return;
+                    // }
+
+                },
+                onClickYes(){
+                    this.state.isOn=false;
+                    this.state.할일리스트 = this.state.할일리스트.filter((item)=>item.idx!==this.state.idx)
+                    localStorage.setItem('할일리스트', JSON.stringify(this.state.할일리스트))
+                },
+                onClickNo(){
+                    this.state.isOn=false;
+                    return;
+                },
+
+                // 수정 버튼 클릭 이벤트
+                onClickUpdate(item){             
+                    
+                    console.log( this.state.수정 )
+
+                    this.state.수정 = true   // 수정함
+                    this.state.idx = item.idx   // 수정 대상 아이디
+                    this.state.할일 = item.할일 // 할일
+                    this.state.기한 = item.기한 // 기한
+                },
+
+                // 수정 취소 클릭 이벤트
+                onClickUpdateCancle(){
+
+                    this.state.수정 = false   // 수정안함
+                    this.state.idx = ''   // 수정 대상 아이디
+                    this.state.할일 = '' // 할일
+
+                    let toDay = new Date();
+                    toDay.setHours( toDay.getHours() + 9)
+                    this.state.기한 = toDay.toISOString().slice(0, -8);
+
+                    this.$refs.todoInputBox.focus();
+
+                },
+                // 페이지버튼 클릭 이벤트 => 페이지이동
+                onClickPageBtn(num){
+
+                    // 현재페이지 버튼 번호
+                    this.page = num;  // 페이지 이동시 변경
+
+                    // 리스트 페이지네이션
+                    this.state.listStart = num-1
+                    this.state.listStart = this.state.listStart * this.state.listShow
+                    this.state.listEnd   = this.state.listStart + this.state.listShow
+
+                    // 버튼 페이지네이션
+                    this.state.btnStart = (Math.ceil(this.page/this.state.btnShow)-1) * this.state.btnShow
+                    this.state.btnEnd   = this.state.btnStart + this.state.btnShow
+
+                },
+                // 다음페이지
+                onClickNextPageBtn(){
+                    this.page++; 
+                    if(this.page>this.state.pages){
+                        this.page=this.state.pages   // 전체페이지수(총페이지)
+                    }                    
+                },
+                // 이전페이지
+                onClickPrevPageBtn(){
+                    this.page--;
+                    if(this.page<1){
+                        this.page=1;
+                    }                    
+                },
+                // 시작페이지(처음)
+                onClickStartPageBtn(){
+                    this.page=1;    // 1페이지                   
+                },
+                // 끝페이지(마지막)
+                onClickEndPageBtn(){
+                    this.page=this.state.pages;   // 마지막페이지 = 전체페이지수(총페이지)
+                },
+                
+            },  // 메서드끝
+            
+            updated(){  // 데이터 수정 입력 삭제 되면 바로 실행되는 감시자 역활
+                this.state.total = this.state.할일리스트.length;
+                this.state.pages = Math.ceil(this.state.total / this.state.listShow);
+            },
+            // 와치 => 감시자 속성
+            // 상태변수 data: 안에 있는 모든 변수 변화를 감시
+            // this.page, this.state         
+            watch: {
+                // 페이지 this.page 가 변경되면 곧바로 페이지 이동 하도록 함수 호출 실행
+                // page(current, preivew){  // this.page
+                //     console.log(a, b) // a는 현재 변경된 페이지, b 변경 이전 페이지
+                // }
+                page(현재페이지, 이전페이지){  // this.page                    
+                    
+                    this.onClickPageBtn(현재페이지); // 페이지이동 함수 호출 실행  
+
+                    // 현재페이지 로컬스토레이지에 저장 => 새로고침시 페이지 불러와서 계속 유지한다.          
+                    localStorage.setItem('page', String(현재페이지))  // 숫자 => 문자열
+                }
+            }
+        }).mount('#root')
+     </script>
+    
+
+    <!-- 3. 스타일 -->
+     <style>
+        :root {
+            --pink-color: #ee7c9e;
+            --purple-color: #9680f0;
+            --cyan-color: #6aa3ff;
+            --blue-color: #707cec;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            vertical-align: middle;
+            box-sizing: border-box;
+            text-size-adjust: 100%;
+        }
+        ul {
+            list-style: none;
+        }
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+        html,body {
+            font: normal 16px/1 '맑은 고딕', 'arial';
+            color: #555;
+            background: #fafafa;
+        }
+        #root {
+            width: 100%;
+            user-select: none;
+        }
+
+        /* 타이틀박스 */
+        #root .title-box {
+            width: 100%;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--pink-color);
+        }
+        #root .title-box h1 {
+            font-size: 36px;
+            color: #fff;
+        }
+
+
+        /* 입력박스 */
+        #root .input-box {
+            width: 100%;
+            padding: 60px 10px;
+        }
+        #root .input-box .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+            height: 70px;            
+        }        
+        #root .input-box .container input[type='text'] {
+            width: 100%;
+            height: 100%;
+            opacity: hidden;
+            border: 1px solid #ddd;
+            padding: 0 260px 0 20px;
+            font-size: 20px;
+            border-radius: 8px;
+            font-weight: 300;
+            background: #fff;
+            outline-offset: -1px;
+            outline: 1px solid rgba(34, 34, 34, 0);
+            transition: outline 0.6s;
+            position: relative;
+            z-index: 1;
+        }
+        @media  all  and  (max-width: 1200px) {
+            #root .input-box .container input[type='text'] {
+                padding: 0 60px 0 20px;
+            }   
+        }
+
+
+        #root .input-box .container input[type='text']:focus {
+            outline: 1px solid rgba(50, 50, 50, 1);
+        }
+        #root .input-box .container input[type='text']::placeholder {
+            color: #aaa;
+        }
+
+        /* 만료 기한 */
+        #root .input-box .container input[type='datetime-local'] {
+            position: absolute;
+            right: 20px;
+            top: 0;
+            height: 100%;
+            z-index: 2;
+            border: 0;
+            background: none;
+            outline: 0;
+            font-size: 16px;
+            font-weight: 500;
+            color: #000;
+        }
+
+        @media all and (max-width: 1200px) {
+            #root .input-box .container input[type='datetime-local'] {
+                width: 20px;
+            }
+        }
+
+
+
+
+        /* 리스트박스 */
+        #root .list-box {
+            width: 100%;
+            padding-bottom: 80px;
+        }
+        #root .list-box .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;            
+        }
+        #root .list-box .container ul {
+            width: 100%;
+        }
+        #root .list-box .container ul li {
+            width: 100%;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #ddd;
+            padding: 0 10px;
+        }
+        #root .list-box .container ul li:first-child {
+            border-top: 1px solid #000;
+        }
+        #root .list-box .container ul li input[type='checkbox']{
+            width: 22px;
+            height: 22px;
+
+            /* 체크박스 모양 UIUX 디자인 */
+            /* 어 피 어 리 언 스 */
+            /* 체크박스 checked 라디오버튼 checked 셀렉트박스 selected */
+            appearance: none;  /* 체크박스 원래 모양 사용 안할래 */
+            border: 1px solid #555;    
+            border-radius: 50%;                 
+        }
+        #root .list-box .container ul li input[type='checkbox']:checked{
+            background: url(./images/check-lg.svg) no-repeat 50% 50%;
+            background-size: 15px 15px;            
+        }
+
+        #root .list-box .container ul li a {
+            width: calc(100% - 22px - 76px - 50px - 10px);
+            height: 100%;
+            display: flex;
+            align-items: center;
+            padding-left: 20px;     
+
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #root .list-box .container ul li a:hover {
+            color: var(--blue-color);
+        }
+
+        #root .list-box .container ul li a span {
+            display: block;
+            padding-right: 30px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #root .list-box .container ul li button {
+            border: 0;
+            background: none;
+            cursor: pointer;  
+            padding: 5px 0;    
+            color: #fff;  
+            border-radius: 5px;          
+        }
+
+         /* 수정취소버튼 숨김 hide */
+         #root .list-box .container ul li button.update-cancle-btn {
+            width: 76px;
+            /* background: var(--cyan-color); */
+            background: none;
+            margin-right:10px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }        
+        /* 수정취소버튼 보임 show */
+        #root .list-box .container ul li button.update-cancle-btn.on {
+            opacity: 1;
+        }
+        /* 폰트 아이콘 */
+        #root .list-box .container ul li button.update-cancle-btn i {
+            color: var(--cyan-color);            
+            font-size: 22px;
+        }
+
+
+        #root .list-box .container ul li button.delete-btn {
+            width: 50px;
+            /* background: var(--pink-color); */
+            background: none;
+        }
+        /* 폰트 아이콘 */
+        #root .list-box .container ul li button.delete-btn i {
+            color: var(--pink-color);            
+            font-size: 20px;
+        }
+
+
+        /* 완료됨 */
+        #root .list-box .container div.completed-text {
+            font-size: 17px;
+            padding: 10px 20px;
+            background: #9680f0;
+            color: #fff;            
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 5px 5px 0 0;
+        }
+        #root .list-box .container ul.completed li a {
+            color: #bbb;
+            text-decoration: line-through;
+        }
+
+
+
+
+        /* 페이지버튼박스 */
+        #root .list-box .container .pagebtn-box {
+            width: 100%;
+            padding: 30px 0;
+            display: flex;
+            justify-content: center;
+        }
+        #root .list-box .container .pagebtn-box button {
+            width: 35px;
+            height: 35px;
+            border: 1px solid #999;
+            color: #666;
+            font-size: 17px;
+            background: #fff;
+            margin: 0 2px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        #root .list-box .container .pagebtn-box button:hover {
+            background: #f0f0f0;
+            color: #000;
+        }
+        #root .list-box .container .pagebtn-box button.on {
+            background: #f0f0f0;
+            color: #000;
+        }
+
+
+        /* 푸터 */
+        #root .footer {
+            width: 100%;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f0f0f0;            
+        }
+        #root .footer p {
+            font-size: 12px;
+            color:#999;
+        }
+        
+        /* 컨펌모달 */
+        #root .confirm-modal {
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+            top: 0;
+            left: 0;
+            z-index: 4;
+            background: rgba(0,0,0, 0.1);
+            display: flex;
+            display: none;
+        }
+        #root .confirm-modal.on {
+            display: flex;
+        }
+        #root .confirm-modal .container {
+            width: 100%;
+            max-width: 320px;
+            margin: auto;
+            background: #fff;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #root .confirm-modal .container .content {
+            padding: 30px 0;   
+                 
+        }
+        #root .confirm-modal .container .content h2 {
+            font-size: 20px;
+            font-weight: 400;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #root .confirm-modal .container .content h2 i {
+            width: 10%;
+        }
+
+        
+
+        #root .confirm-modal .container .button-box {
+            width: 100%;
+            border-top: 1px solid #eee;
+        }
+        #root .confirm-modal .container .button-box button {
+            width: 50%;
+            height: 50px;
+            background: #fff;
+            border: 0;
+            font-size: 17px;
+            color: #555;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+        
+        #root .confirm-modal .container .button-box button:hover {
+            color: var(--pink-color);
+        }
+        #root .confirm-modal .container .button-box button:first-child {
+            border-right: 1px solid #eee;
+        }
+        #root .confirm-modal .container .button-box button i {
+            width: 10%;
+        }
+
+
+     </style>
+
+</body>
+</html>
